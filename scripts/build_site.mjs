@@ -26,11 +26,29 @@ marked.use(gfmHeadingId());
 marked.setOptions({ gfm: true });
 
 const SITE_CSS = readFileSync(path.join(ROOT, 'scripts', 'site.css'), 'utf8');
+const QUIZ_COMMON_JS = readFileSync(path.join(ROOT, 'scripts', 'quiz-common.js'), 'utf8');
 const QUIZ_JS = readFileSync(path.join(ROOT, 'scripts', 'quiz.js'), 'utf8');
 const ASSESSMENT_JS = readFileSync(path.join(ROOT, 'scripts', 'assessment.js'), 'utf8');
 
 const QUIZ_DIRS = new Set(['02_interview_bank', '03_failure_modes']);
 const QUIZ_GROUP_LABELS = { '02_interview_bank': 'Architectures', '03_failure_modes': 'Failure Modes' };
+
+/**
+ * Per-page prelude inlined ahead of quiz.js / assessment.js: the tag
+ * vocabulary (single source of truth: scripts/lib/questions.mjs), the
+ * relative path to the assessment page, the section group a quiz page
+ * belongs to (null on the aggregated pages), then the shared helpers in
+ * scripts/quiz-common.js.
+ */
+function preludeJs({ assessmentHref, pageGroup }) {
+  return [
+    `const DIFFICULTIES = ${JSON.stringify(DIFFICULTIES)};`,
+    `const TAGS = ${JSON.stringify(TAGS)};`,
+    `const ASSESSMENT_HREF = ${JSON.stringify(assessmentHref)};`,
+    `const QUIZ_PAGE_GROUP = ${JSON.stringify(pageGroup ?? null)};`,
+    QUIZ_COMMON_JS,
+  ].join('\n');
+}
 
 let warnings = 0;
 let brokenLinks = 0;
@@ -274,7 +292,7 @@ function filterBarHtml({ extraChipsHtml = '', extraGroupsHtml = '' } = {}) {
     </fieldset>${extraGroupsHtml}
   </div>
   <div class="quiz-bar-actions">
-    <button id="quiz-start-btn" class="primary" onclick="startQuiz()">▶ Start Quiz</button>
+    <button id="quiz-start-btn" class="primary" onclick="startQuiz()">▶ Start Practice</button>
     <span id="quiz-match-count" class="match-count" aria-live="polite"></span>
     <button class="link-btn" onclick="resetFilters()">Reset filters</button>
   </div>
@@ -283,7 +301,7 @@ function filterBarHtml({ extraChipsHtml = '', extraGroupsHtml = '' } = {}) {
 }
 
 /** Wraps rendered body HTML in the shared page shell. */
-function wrapPage({ title, bodyHtml, depth, quiz }) {
+function wrapPage({ title, bodyHtml, depth, quiz, quizGroup = null }) {
   const backHref = '../'.repeat(depth) + 'index.html';
   const backLink = depth >= 1 ? `<a class="back" href="${backHref}">← Back to Index</a>\n` : '';
   const quizBar = quiz ? `${filterBarHtml()}<div id="main-content">\n` : '';
@@ -292,6 +310,7 @@ function wrapPage({ title, bodyHtml, depth, quiz }) {
 <div class="quiz-panel-overlay" id="quiz-overlay"></div>
 <div id="quiz-panel"></div>
 <script>
+${preludeJs({ assessmentHref: '../'.repeat(depth) + 'assessment.html', pageGroup: quizGroup })}
 ${QUIZ_JS}
 </script>
 `
@@ -385,12 +404,12 @@ ${sectionOptions}
   const statTiles = stats
     .map(([n, label]) => `  <div class="stat"><span class="stat-num">${n.toLocaleString('en-US')}</span><span class="stat-label">${label}</span></div>`)
     .join('\n');
-  const body = `<h1>RAG Interview Quiz</h1>
-<p class="page-nav"><a href="index.html">← Back to Index</a> · <a href="assessment.html">Take a timed self-assessment →</a></p>
+  const body = `<h1>RAG Interview Practice Quiz</h1>
+<p class="page-nav"><a href="index.html">← Back to Index</a> · <a href="assessment.html">Test yourself with a timed assessment →</a></p>
 <div class="quiz-stats">
 ${statTiles}
 </div>
-<p class="lead">Filter by difficulty, type, or section, then start the quiz.</p>
+<p class="lead">Learn and drill: filter by difficulty, type, or section, then start practising. Answers are revealed as you go.</p>
 ${filterBarHtml({ extraChipsHtml: shuffleChip, extraGroupsHtml: sectionGroup })}<div id="main-content">
 ${tocGroups}
 </div>
@@ -400,19 +419,24 @@ ${tocGroups}
 ${dataJson}
 </script>
 <script>
+${preludeJs({ assessmentHref: 'assessment.html', pageGroup: null })}
 ${QUIZ_JS}
 </script>`;
 
-  return wrapPage({ title: 'RAG Interview Quiz', bodyHtml: body, depth: 0, quiz: false });
+  return wrapPage({ title: 'RAG Interview Practice Quiz', bodyHtml: body, depth: 0, quiz: false });
 }
 
-/** Segmented control for the assessment setup card (buttons call setAssessOption in assessment.js). */
+/**
+ * Segmented control for the assessment setup card (buttons call
+ * setAssessOption in assessment.js). data-value lets syncSetupButtons
+ * re-press the right button when the config was prefilled from the URL.
+ */
 function assessSegmentedHtml({ legend, name, options, active }) {
   const buttons = options
     .map((o) => {
       const on = o.value === active;
       const dot = o.dotClass ? `<span class="dot ${o.dotClass}"></span>` : '';
-      return `<button class="assess-btn${on ? ' active' : ''}" data-opt="${name}" aria-pressed="${on}" onclick='setAssessOption("${name}", ${JSON.stringify(o.value)}, this)'>${dot}${o.label}</button>`;
+      return `<button class="assess-btn${on ? ' active' : ''}" data-opt="${name}" data-value="${String(o.value)}" aria-pressed="${on}" onclick='setAssessOption("${name}", ${JSON.stringify(o.value)}, this)'>${dot}${o.label}</button>`;
     })
     .join('\n        ');
   return `    <fieldset class="filter-group">
@@ -423,7 +447,7 @@ function assessSegmentedHtml({ legend, name, options, active }) {
     </fieldset>`;
 }
 
-/** An MCQ item the assessment can use (mirrors isMcqItem in scripts/assessment.js). */
+/** An MCQ item the assessment can use (mirrors isMcqItem in scripts/quiz-common.js). */
 function isAssessmentItem(it) {
   return it.tags.includes('MCQ') && Array.isArray(it.options) && it.options.length > 0 && !!it.correct;
 }
@@ -470,7 +494,7 @@ ${assessSegmentedHtml({ legend: 'Timer', name: 'secondsPerQuestion', active: 0, 
 </div>`;
 
   const body = `<h1>RAG Interview Self-Assessment</h1>
-<p class="page-nav"><a href="index.html">← Back to Index</a> · <a href="quiz.html">Interactive Quiz (flashcards)</a></p>
+<p class="page-nav"><a href="index.html">← Back to Index</a> · <a href="quiz.html">← Practice Quiz (flashcards + MCQs)</a></p>
 <div class="quiz-stats">
 ${statTiles}
 </div>
@@ -486,6 +510,7 @@ ${setupCard}
 ${dataJson}
 </script>
 <script>
+${preludeJs({ assessmentHref: 'assessment.html', pageGroup: null })}
 ${ASSESSMENT_JS}
 </script>`;
 
@@ -568,7 +593,7 @@ function main() {
       });
     }
 
-    const page = wrapPage({ title, bodyHtml: html, depth, quiz });
+    const page = wrapPage({ title, bodyHtml: html, depth, quiz, quizGroup: quiz ? QUIZ_GROUP_LABELS[srcDirRel] : null });
     writeFileSync(outAbs, page, 'utf8');
     pageCount++;
   }

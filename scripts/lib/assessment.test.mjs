@@ -7,17 +7,27 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { DIFFICULTIES, TAGS } from './questions.mjs';
 
+// Mirror the prelude scripts/build_site.mjs's preludeJs() emits ahead of the
+// browser scripts, then the shared helpers, then assessment.js itself.
+const prelude = [
+  `const DIFFICULTIES = ${JSON.stringify(DIFFICULTIES)};`,
+  `const TAGS = ${JSON.stringify(TAGS)};`,
+  'const ASSESSMENT_HREF = "assessment.html";',
+  'const QUIZ_PAGE_GROUP = null;',
+].join('\n');
+const common = readFileSync(new URL('../quiz-common.js', import.meta.url), 'utf8');
 const src = readFileSync(new URL('../assessment.js', import.meta.url), 'utf8');
 const api = vm.runInNewContext(
-  src +
-    '\n;({ isMcqItem, shuffleArray, filterPool, sampleQuestions, scoreAttempt, readinessFor, formatClock, timerSeconds, sectionPageHref, loadHistory, saveAttempt, clearHistory, bestScore, HISTORY_KEY, HISTORY_MAX })',
-  { Math, JSON, Date }
+  [prelude, common, src].join('\n') +
+    '\n;({ isMcqItem, shuffleArray, filterPool, sampleQuestions, scoreAttempt, readinessFor, formatClock, timerSeconds, sectionPageHref, loadHistory, saveAttempt, clearHistory, bestScore, configFromSearch, HISTORY_KEY, HISTORY_MAX })',
+  { Math, JSON, Date, URLSearchParams }
 );
 const {
   isMcqItem, shuffleArray, filterPool, sampleQuestions, scoreAttempt, readinessFor,
   formatClock, timerSeconds, sectionPageHref, loadHistory, saveAttempt, clearHistory,
-  bestScore, HISTORY_KEY, HISTORY_MAX,
+  bestScore, configFromSearch, HISTORY_KEY, HISTORY_MAX,
 } = api;
 
 function mulberry32(seed) {
@@ -178,4 +188,29 @@ test('history: throwing storage never throws', () => {
   assert.deepEqual(loadHistory(bad), []);
   assert.deepEqual(saveAttempt(bad, { pct: 5 }), [{ pct: 5 }]);
   assert.doesNotThrow(() => clearHistory(bad));
+});
+
+const DEFAULTS = { count: 25, difficulty: 'All', group: 'All', secondsPerQuestion: 0 };
+
+test('configFromSearch applies valid query params over the defaults', () => {
+  const c = configFromSearch('?difficulty=Advanced&group=Failure%20Modes&count=10&timer=30', DEFAULTS);
+  assert.equal(c.difficulty, 'Advanced');
+  assert.equal(c.group, 'Failure Modes');
+  assert.equal(c.count, 10);
+  assert.equal(c.secondsPerQuestion, 30);
+  assert.deepEqual(DEFAULTS, { count: 25, difficulty: 'All', group: 'All', secondsPerQuestion: 0 });
+});
+
+test('configFromSearch ignores unknown or invalid values and empty search', () => {
+  const c = configFromSearch('?difficulty=Expert&group=Nope&count=7&timer=45&bogus=1', DEFAULTS);
+  assert.deepEqual({ ...c }, DEFAULTS);
+  assert.deepEqual({ ...configFromSearch('', DEFAULTS) }, DEFAULTS);
+  assert.deepEqual({ ...configFromSearch(undefined, DEFAULTS) }, DEFAULTS);
+});
+
+test('configFromSearch keeps numeric and "All" types intact', () => {
+  const c = configFromSearch('?count=All&timer=0', DEFAULTS);
+  assert.strictEqual(c.count, 'All');
+  assert.strictEqual(c.secondsPerQuestion, 0);
+  assert.strictEqual(configFromSearch('?count=50', DEFAULTS).count, 50);
 });

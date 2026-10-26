@@ -9,6 +9,17 @@ tooling, **patch** for fixes and wording.
 
 ## [Unreleased]
 
+### Changed
+
+- Relabelled the quiz as the "Practice Quiz" (URL unchanged) to separate it
+  from the timed self-assessment. The quiz summary now links to the
+  assessment, carrying over the difficulty and section-group filters, and the
+  assessment setup honours `?difficulty=&group=&count=&timer=` query params.
+- Moved the browser helpers shared by the quiz and assessment into
+  `scripts/quiz-common.js`, and inject the tag vocabulary from
+  `scripts/lib/questions.mjs` at build time instead of keeping hand-synced
+  copies.
+
 ### Added
 
 - Added a self-assessment page (`assessment.html`): exam-style sets of

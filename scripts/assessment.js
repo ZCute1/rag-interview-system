@@ -1,12 +1,11 @@
 // Runs inline on assessment.html (see scripts/build_site.mjs's
 // buildAssessmentPage), so this is a plain classic script, not an ES module.
-// The top half is DOM-free (only Math/JSON/Date) so scripts/lib/assessment.test.mjs
-// can load it with node:vm; everything that touches `document` lives below the
-// "DOM" marker and only runs via initAssessment().
-//
-// DIFFICULTIES, isMcqItem and shuffleArray intentionally mirror scripts/quiz.js
-// (which can't be imported either); keep them in sync.
-const DIFFICULTIES = ['Basic', 'Intermediate', 'Advanced'];
+// The build emits a prelude before it that defines DIFFICULTIES and TAGS
+// (from scripts/lib/questions.mjs), followed by scripts/quiz-common.js
+// (isMcqItem, shuffleArray, setPressed). The top half here is DOM-free (only
+// Math/JSON/Date/URLSearchParams) so scripts/lib/assessment.test.mjs can load
+// it with node:vm; everything that touches `document` lives below the "DOM"
+// marker and only runs via initAssessment().
 const HISTORY_KEY = 'rag-assessment-history-v1';
 const HISTORY_MAX = 20;
 
@@ -16,19 +15,6 @@ const READINESS_BANDS = [
   { min: 50, level: 'Getting there', cls: 'getting-there', text: 'Fundamentals are in place. Drill the weak sections below and the Intermediate tier.' },
   { min: 0, level: 'Needs work', cls: 'needs-work', text: 'Core concepts are not solid yet. Work through the concepts section and the Basic questions before retesting.' },
 ];
-
-function isMcqItem(q) {
-  return !!q && Array.isArray(q.tags) && q.tags.includes('MCQ') && Array.isArray(q.options) && q.options.length > 0 && !!q.correct;
-}
-
-function shuffleArray(arr, rng = Math.random) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
 
 function filterPool(pool, { difficulty = 'All', group = 'All' } = {}) {
   let r = pool.filter(isMcqItem);
@@ -155,6 +141,31 @@ function bestScore(history) {
   return history.length ? history.reduce((b, e) => (e.pct > b.pct ? e : b)) : null;
 }
 
+// Allowed values for each setup option; mirrors the segmented controls that
+// scripts/build_site.mjs's buildAssessmentPage renders.
+const CONFIG_CHOICES = {
+  count: [10, 25, 50, 'All'],
+  difficulty: ['All', ...DIFFICULTIES],
+  group: ['All', 'Architectures', 'Failure Modes'],
+  secondsPerQuestion: [0, 30, 60],
+};
+const QUERY_KEYS = { count: 'count', difficulty: 'difficulty', group: 'group', timer: 'secondsPerQuestion' };
+
+// Applies `?count=&difficulty=&group=&timer=` query params (as emitted by the
+// practice quiz's handoff link) over `defaults`. Unknown or invalid values are
+// ignored so a stale or hand-edited URL can never produce an impossible setup.
+function configFromSearch(search, defaults) {
+  const out = { ...defaults };
+  const params = new URLSearchParams(search || '');
+  for (const [key, opt] of Object.entries(QUERY_KEYS)) {
+    const raw = params.get(key);
+    if (raw === null) continue;
+    const match = CONFIG_CHOICES[opt].find(v => String(v) === raw.trim());
+    if (match !== undefined) out[opt] = match;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- DOM ----
 
 const state = {
@@ -191,14 +202,6 @@ function loadAssessmentQuestions() {
 
 function getStorage() {
   try { return window.localStorage || null; } catch (e) { return null; }
-}
-
-function setPressed(selector, btn) {
-  document.querySelectorAll(selector).forEach(b => {
-    const on = b === btn;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  });
 }
 
 function plannedCount() {
@@ -464,8 +467,19 @@ function onClearHistory() {
   renderHistory();
 }
 
+// Presses the setup button whose data-opt/data-value match each configured
+// option, so a URL-prefilled config is visible in the control card.
+function syncSetupButtons() {
+  for (const [name, value] of Object.entries(state.config)) {
+    const btn = document.querySelector(`.assess-btn[data-opt="${name}"][data-value="${String(value)}"]`);
+    if (btn) setPressed(`.assess-btn[data-opt="${name}"]`, btn);
+  }
+}
+
 function initAssessment() {
   state.pool = loadAssessmentQuestions();
+  state.config = configFromSearch(window.location.search, state.config);
+  syncSetupButtons();
   updateAssessMatchCount();
   renderHistory();
   document.addEventListener('keydown', (e) => {

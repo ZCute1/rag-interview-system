@@ -1,17 +1,8 @@
-// Runs inline in every generated page (see scripts/build_site.mjs's wrapPage),
-// so this is a plain classic script, not an ES module — it can't `import`
-// scripts/lib/questions.mjs. These two vocab lists intentionally mirror
-// DIFFICULTIES / TAGS there; keep them in sync if the tag vocabulary changes.
-const DIFFICULTIES = ['Basic', 'Intermediate', 'Advanced'];
-const TAGS = ['Scenario', 'MCQ'];
-
-// An item only renders as a multiple-choice card if it's tagged [MCQ] *and*
-// carries a usable options list and correct letter -- otherwise (e.g. a
-// scrape that failed to find the option <ul>) it degrades to a flashcard
-// rather than rendering a broken quiz.
-function isMcqItem(q) {
-  return q.tags.includes('MCQ') && Array.isArray(q.options) && q.options.length > 0 && !!q.correct;
-}
+// Runs inline in every generated page (see scripts/build_site.mjs's wrapPage)
+// and on quiz.html, so this is a plain classic script, not an ES module. The
+// build emits a prelude before it that defines DIFFICULTIES, TAGS,
+// ASSESSMENT_HREF and QUIZ_PAGE_GROUP, followed by scripts/quiz-common.js
+// (isMcqItem, shuffleArray, setPressed).
 
 function scrapeFromDom() {
   const items = [];
@@ -77,15 +68,6 @@ let scenarioOnly = false;
 let typeFilter = 'All';
 let answered = false;
 
-function shuffleArray(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 function applyFilters() {
   let result = allQuestions;
   if (difficultyFilter !== 'All') {
@@ -108,17 +90,6 @@ function applyFilters() {
     result = shuffleArray(result);
   }
   return result;
-}
-
-// Marks `btn` as the pressed member of a segmented control (the other
-// buttons matching `selector` are released). Keeps the .active class and
-// aria-pressed in step so sighted and screen-reader users see the same state.
-function setPressed(selector, btn) {
-  document.querySelectorAll(selector).forEach(b => {
-    const on = b === btn;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  });
 }
 
 // Live "N questions match" readout under the filter bar, plus disabling
@@ -346,6 +317,23 @@ function nextQuestion() {
   }
 }
 
+// Link into the self-assessment with the current practice filters carried
+// over (difficulty, and the section group when the session is confined to
+// one). ASSESSMENT_HREF / QUIZ_PAGE_GROUP come from the build prelude.
+function assessmentHandoffHref() {
+  const params = new URLSearchParams();
+  if (difficultyFilter !== 'All') params.set('difficulty', difficultyFilter);
+  let group = typeof QUIZ_PAGE_GROUP !== 'undefined' ? QUIZ_PAGE_GROUP : null;
+  if (!group && filtered.length > 0) {
+    const groups = new Set(filtered.map(q => q.sectionGroup).filter(Boolean));
+    if (groups.size === 1) group = groups.values().next().value;
+  }
+  if (group) params.set('group', group);
+  const base = typeof ASSESSMENT_HREF !== 'undefined' ? ASSESSMENT_HREF : 'assessment.html';
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 function showSummary() {
   const percentage = Math.round((correctCount / filtered.length) * 100);
   const html = `
@@ -354,6 +342,7 @@ function showSummary() {
       <p style="font-size: 1.1em; margin: 1.5rem 0;">You got <strong>${correctCount} out of ${filtered.length}</strong> correct.</p>
       <div class="quiz-score">${percentage}%</div>
       <p style="color: #666; margin: 1rem 0;">${reviewCount} to review</p>
+      <p class="quiz-handoff"><a href="${assessmentHandoffHref()}">Think you know it? Take a timed assessment →</a></p>
       <button onclick="restartQuiz()">← Try Again</button>
       <button onclick="exitQuiz()" style="background: #666; border-color: #666; margin-left: 1rem;">Exit Quiz</button>
     </div>

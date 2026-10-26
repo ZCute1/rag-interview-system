@@ -75,7 +75,7 @@ or constraint — and asks them to design, diagnose, decide, or trade off, e.g.
 Difficulty still describes how much expertise the *answer* needs — a scenario
 question can be `[Basic]` if a beginner-level design is all that's asked for.
 Don't tag a purely conceptual "what is X" or "compare X and Y" question, even
-if its answer happens to mention a real-world example in passing. The quiz's
+if its answer happens to mention a real-world example in passing. The practice quiz's
 "Scenario only" filter lets candidates drill just these questions.
 
 **The `[MCQ]` tag:**
@@ -83,7 +83,7 @@ if its answer happens to mention a real-world example in passing. The quiz's
 Add `[MCQ]` when the question has a single defensible correct answer among a
 small set of options — a good fit for metrics, hyperparameter choices, "which
 of these is true" style facts, or a scenario with one clearly-best option. The
-quiz auto-grades these: the candidate clicks an option and sees immediately
+practice quiz auto-grades these: the candidate clicks an option and sees immediately
 whether they were right, instead of self-reporting "Got it" / "Review again".
 The self-assessment page (`assessment.html`) also draws its exam sets only from
 `[MCQ]` questions, so every new MCQ widens that pool.
